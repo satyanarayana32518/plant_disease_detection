@@ -83,11 +83,15 @@ function Home() {
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<DetectionResult | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fetchedResponse, setFetchedResponse] = useState<any | null>(null);
+  const [fetchIndicator, setFetchIndicator] = useState<'f' | 'r' | null>(null);
   const [progress, setProgress] = useState(0);
   const [chatMessages, setChatMessages] = useState<Array<{ text: string; type: 'bot' | 'status' }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageSelect = (file: File) => {
+    setSelectedFile(file);
     const reader = new FileReader();
     reader.onloadend = () => {
       setUploadedImage(reader.result as string);
@@ -135,6 +139,42 @@ function Home() {
       const assistantText = `Possible condition: ${sample.disease} (${sample.confidence}% typical confidence)\n\nOverview: ${overview}\n\nHow to avoid this: ${prevention.join('; ')}.\n\nRecovery tips: ${recoveryTips.join('; ')}.`;
 
       setChatMessages([{ text: assistantText, type: 'bot' }]);
+
+      // Try to send the image to the backend prediction endpoint.
+      (async () => {
+        if (!file) return;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+
+          const res = await fetch('http://localhost:8000/predict', {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal
+          });
+
+          clearTimeout(timeout);
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+          const data = await res.json();
+          setFetchedResponse(data);
+          setFetchIndicator('f');
+          const msg = `Fetched response: ${JSON.stringify(data, null, 2)}`;
+          setChatMessages(prev => [{ text: msg, type: 'bot' }, ...prev]);
+          console.log('f', data);
+        } catch (err) {
+          clearTimeout(timeout);
+          setFetchedResponse(null);
+          setFetchIndicator('r');
+          const msg = 'Backend not available — using random sample fallback.';
+          setChatMessages(prev => [{ text: msg, type: 'bot' }, ...prev]);
+          console.log('r', err);
+        }
+      })();
     };
     reader.readAsDataURL(file);
   };
@@ -164,13 +204,47 @@ function Home() {
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    const randomResult = diseaseDatabase[Math.floor(Math.random() * diseaseDatabase.length)];
-    setResult(randomResult);
+    // If backend returned a structured response, use it; otherwise pick random.
+    if (fetchedResponse && typeof fetchedResponse === 'object' && fetchedResponse.disease) {
+      // Normalize confidence: backend may return a string like "52.77%".
+      let confidenceNum = 100;
+      const confRaw = fetchedResponse.confidence ?? fetchedResponse.Confidence ?? '';
+      if (typeof confRaw === 'string') {
+        const parsed = parseFloat(confRaw.replace('%', '').trim());
+        if (!Number.isNaN(parsed)) confidenceNum = parsed;
+      } else if (typeof confRaw === 'number') {
+        confidenceNum = confRaw;
+      }
 
-    setChatMessages(prev => [...prev, {
-      text: `💡 Detection Result: ${randomResult.disease} (${randomResult.confidence}% confidence)`,
-      type: 'status'
-    }]);
+      // Normalize treatments/suggestions
+      let treatments: string[] = [];
+      if (Array.isArray(fetchedResponse.treatments)) treatments = fetchedResponse.treatments;
+      else if (typeof fetchedResponse.suggestion === 'string' && fetchedResponse.suggestion.trim()) treatments = [fetchedResponse.suggestion];
+      else if (typeof fetchedResponse.treatment === 'string') treatments = [fetchedResponse.treatment];
+
+      const parsed: DetectionResult = {
+        disease: fetchedResponse.disease,
+        confidence: confidenceNum,
+        treatments,
+        status: (fetchedResponse.status === 'healthy' ? 'healthy' : (confidenceNum >= 90 ? 'healthy' : 'diseased')) as 'healthy' | 'diseased'
+      };
+
+      setResult(parsed);
+      setChatMessages(prev => [...prev, {
+        text: `💡 Detection Result (f): ${parsed.disease} (${parsed.confidence}% confidence)`,
+        type: 'status'
+      }]);
+      console.log('f', fetchedResponse);
+    } else {
+      const randomResult = diseaseDatabase[Math.floor(Math.random() * diseaseDatabase.length)];
+      setResult(randomResult);
+
+      setChatMessages(prev => [...prev, {
+        text: `💡 Detection Result (r): ${randomResult.disease} (${randomResult.confidence}% confidence)`,
+        type: 'status'
+      }]);
+      console.log('r');
+    }
 
     setIsAnalyzing(false);
   };
@@ -267,6 +341,7 @@ function Home() {
             </div>
 
             <div className="lg:col-span-1">
+              <div className="mb-3 text-sm font-medium text-gray-700">Source: {fetchIndicator ?? '-'}</div>
               <ChatBot messages={chatMessages} isAnalyzing={isAnalyzing} />
             </div>
           </div>

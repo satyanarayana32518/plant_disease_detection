@@ -1,10 +1,10 @@
 import { Brain, Leaf, Users, Zap, Shield, Target } from 'lucide-react';
 
 const teamMembers = [
-  { name: 'Dr. Sarah Chen', role: 'AI & Machine Learning Lead', initials: 'SC' },
-  { name: 'Prof. James Wilson', role: 'Agricultural Expert', initials: 'JW' },
-  { name: 'Emily Rodriguez', role: 'Full Stack Developer', initials: 'ER' },
-  { name: 'Michael Park', role: 'UI/UX Designer', initials: 'MP' },
+  { name: 'Satyanarayana', role: 'AI & Machine Learning Lead', initials: 'B' },
+  { name: 'Rajesh', role: 'Agricultural Expert', initials: 'CH' },
+  { name: 'Hemanth', role: 'Full Stack Developer', initials: 'G' },
+  { name: 'Mounisha', role: 'UI/UX Designer', initials: 'R' },
 ];
 
 function About() {
